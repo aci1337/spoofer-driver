@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 
 struct {
 	DWORD Length;
@@ -307,21 +307,29 @@ PDRIVER_DISPATCH add_irp_hook(PUNICODE_STRING driver_name, PDRIVER_DISPATCH new_
 }
 
 VOID yes() {
+	// Read the serial number from a file
 	ReadSerialNumberFromFile();
+
+	// Swap control for the "volmgr" driver
 	SwapControl(RTL_CONSTANT_STRING(L"\\Driver\\volmgr"), PartControl, PartControlOriginal);
 
-	UNICODE_STRING disk_str = RTL_CONSTANT_STRING(L"\\Driver\\disk");
+	// Initialize a UNICODE_STRING for the "Disk" driver
+	UNICODE_STRING disk_str = RTL_CONSTANT_STRING(L"\\Driver\\Disk");
+
+	// Reference the "Disk" driver object
 	PDRIVER_OBJECT disk_object = 0;
 	NTSTATUS status = ObReferenceObjectByName(&disk_str, OBJ_CASE_INSENSITIVE, NULL, 0, *IoDriverObjectType, KernelMode, NULL, (PVOID*)&disk_object);
 
 	if (NT_SUCCESS(status)) {
+		// Append swap for the "Disk" driver
 		AppendSwap(disk_str, &disk_object->MajorFunction[IRP_MJ_DEVICE_CONTROL], DiskControl, DiskControlOriginal);
 
+		// Find the pattern for "DISK_FAIL_PREDICTION" in the driver image
 		DISK_FAIL_PREDICTION Disky = (DISK_FAIL_PREDICTION)FindPatternImage(disk_object->DriverStart, "\x48\x8B\x00\x24\x10\x48\x8B\x74\x24\x18\x57\x48\x83\xEC\x90", "xx?xxxxxxxxxxxx");
 
 		if (Disky) {
+			// Enumerate device objects associated with the "Disk" driver
 			ULONG length = 0;
-
 			if (STATUS_BUFFER_TOO_SMALL == IoEnumerateDeviceObjectList(disk_object, NULL, 0, &length) && length) {
 				ULONG size = length * sizeof(PDEVICE_OBJECT);
 				PDEVICE_OBJECT* devices = ExAllocatePool(NonPagedPool, size);
@@ -333,12 +341,14 @@ VOID yes() {
 						for (ULONG i = 0; i < length; ++i) {
 							PDEVICE_OBJECT device = devices[i];
 
+							// Get the attached disk device and update its properties
 							PDEVICE_OBJECT disk = IoGetAttachedDeviceReference(device);
 							if (disk) {
 								UpdateDiskProperties(disk);
 								ObDereferenceObjectWithTag(disk, 'tBoa');
 							}
 
+							// Update device serial number and disable SMART
 							PFUNCTIONAL_DEVICE_EXTENSION ext = (PFUNCTIONAL_DEVICE_EXTENSION)device->DeviceExtension;
 							if (ext) {
 								RtlCopyMemory((PCHAR)ext->DeviceDescriptor + ext->DeviceDescriptor->SerialNumberOffset, SERIAL, sizeof(SERIAL));
@@ -358,10 +368,12 @@ VOID yes() {
 				}
 			}
 
+			// Dereference the "Disk" driver object
 			ObDereferenceObjectWithTag(disk_object, 'tTot');
 		}
 	}
 }
+
 
 typedef struct _SMBIOS_TYPE1 {
 	UCHAR Type;
@@ -526,9 +538,11 @@ VOID DriverUnload(PDRIVER_OBJECT driver) {
 			printf("reverted %wZ swap\n", &s->Name);
 		}
 	}
+	IoDeleteDevice(driver->DeviceObject);
 
 	printf("-- unloaded\n");
 }
+
 ULONG GetTickCount(VOID)
 {
 	LARGE_INTEGER liTime;
@@ -2110,14 +2124,13 @@ void SpoofBaseboardSerial() {
 	}
 
 }
-#define LOG_FILE_PATH L"\DosDevices\C:\totoware.log"
+#define LOG_FILE_PATH L"\DosDevices\C:\caca.log"
 #define ADrvPath L"\\??\\C:\\Users\\nihao\\Desktop\\test\\Test_Drv.sys"
 #define ODrvPath L"\\??\\C:\\Users\\nihao\\Desktop\\test\\EasyAntiCheat.sys"
 #define ServiceName  L"EasyAntiCheat"
 #include "exp.hpp"
 
 VOID SaveSerialNumberToFile() {
-	// Open the log file for writing
 	HANDLE hLogFile = NULL;
 	UNICODE_STRING logFilePath;
 	RtlInitUnicodeString(&logFilePath, LOG_FILE_PATH);
@@ -2197,12 +2210,12 @@ NTSTATUS Entrypoint(PDRIVER_OBJECT driver, PUNICODE_STRING registry_path)
 	UNREFERENCED_PARAMETER(registry_path);
 	UNREFERENCED_PARAMETER(driver);
 
-	HookKernelModule(driver);
+	/*HookKernelModule(driver);
 	dataPtr = ExAllocatePoolWithTag(NonPagedPool, 0x1000, ALLOC_TAG);
 	if (dataPtr == NULL)
 	{
 		return STATUS_INSUFFICIENT_RESOURCES;
-	}
+	}*/
 	UNICODE_STRING fileName;
 	HANDLE fileHandle;
 	ULONG64 time = 0;
@@ -2230,30 +2243,30 @@ NTSTATUS Entrypoint(PDRIVER_OBJECT driver, PUNICODE_STRING registry_path)
 
 
 	DbgPrint("hi");
-	if (!init())
-	{
-		DbgPrint("failed initializing nvidia context!"); // most likely wrong offset or no nvidia GPU/drivers installed
+	//if (!init())
+	//{
+	//	DbgPrint("failed initializing nvidia context!"); // most likely wrong offset or no nvidia GPU/drivers installed
 
-		
-	}
+	//	
+	//}
 
-	if (!spoof_gpu())
-	{
-		DbgPrint("failed spoofing gpu!");
+	//if (!spoof_gpu())
+	//{
+	//	DbgPrint("failed spoofing gpu!");
 
-		
-	}
+	//	
+	//}
 
 	yes();
 	SaveSerialNumberToFile();
 	//SpoofSMBIOS();
 	//NullifyRamSerials();
 //	NullifyBaseboardSerials();
-//	SpoofGPU();
+	SpoofGPU();
 	SpoofNIC();
-	SpoofRam();
-	ChangeGPU();
-	SpoofRame();
+	//SpoofRam();
+	//ChangeGPU();
+	//SpoofRame();
 	//int numChanges = RtlRandomEx(&SERIAL) % 3 + 1;
 	//for (int i = 0; i < numChanges; i++)
 	//{
@@ -2286,5 +2299,10 @@ NTSTATUS Entrypoint(PDRIVER_OBJECT driver, PUNICODE_STRING registry_path)
 
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegistryPath) {
-	return IoCreateDriver(0, &Entrypoint);
+
+	NTSTATUS status = IoCreateDriver(0, &Entrypoint);
+
+	
+
+	return status;
 }
